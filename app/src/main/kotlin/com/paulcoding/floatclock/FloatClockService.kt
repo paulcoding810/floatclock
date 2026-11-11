@@ -43,6 +43,8 @@ class FloatClockService : Service() {
       setTextColor(Color.WHITE)
       setBackgroundColor(0x99000000.toInt())
       setPadding(24, 12, 24, 12)
+      gravity = Gravity.CENTER
+      width = paint.measureText("88:88:88.888").toInt() + paddingLeft + paddingRight
       setOnTouchListener(DragListener())
     }
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
