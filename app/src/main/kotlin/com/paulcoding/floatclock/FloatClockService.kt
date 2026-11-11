@@ -18,19 +18,20 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.TimeZone
 
 class FloatClockService : Service() {
   private lateinit var windowManager: WindowManager
   private lateinit var clockView: TextView
   private lateinit var params: WindowManager.LayoutParams
-  private val format = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+  private val digits = CharArray(12).also { it[2] = ':'; it[5] = ':'; it[8] = '.' }
+  private var lastSecond = -1L
+  private var offsetMs = 0
+  private var highlighted = false
   private val choreographer = Choreographer.getInstance()
   private val frameCallback = object : Choreographer.FrameCallback {
     override fun doFrame(frameTimeNanos: Long) {
-      clockView.text = format.format(Date())
+      render(System.currentTimeMillis())
       choreographer.postFrameCallback(this)
     }
   }
@@ -42,7 +43,7 @@ class FloatClockService : Service() {
       typeface = Typeface.MONOSPACE
       textSize = 18f
       setTextColor(Color.WHITE)
-      setBackgroundColor(0x99000000.toInt())
+      setBackgroundColor(NORMAL_COLOR)
       setPadding(24, 12, 24, 12)
       gravity = Gravity.CENTER
       width = paint.measureText("88:88:88.888").toInt() + paddingLeft + paddingRight
@@ -71,7 +72,7 @@ class FloatClockService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_TOGGLE -> {
-        clockView.visibility = if (clockView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        setClockVisible(clockView.visibility != View.VISIBLE)
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
       }
       ACTION_STOP -> stopSelf()
@@ -86,6 +87,41 @@ class FloatClockService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  private fun setClockVisible(visible: Boolean) {
+    clockView.visibility = if (visible) View.VISIBLE else View.GONE
+    choreographer.removeFrameCallback(frameCallback)
+    if (visible) choreographer.postFrameCallback(frameCallback)
+  }
+
+  private fun render(now: Long) {
+    val second = now / 1000
+    if (second != lastSecond) {
+      lastSecond = second
+      offsetMs = TimeZone.getDefault().getOffset(now)
+    }
+    val msOfDay = Math.floorMod(now + offsetMs, 86_400_000L).toInt()
+    val msIntoHour = msOfDay % 3_600_000
+    putDigits(0, msOfDay / 3_600_000, 2)
+    putDigits(3, msIntoHour / 60_000, 2)
+    putDigits(6, msIntoHour / 1_000 % 60, 2)
+    putDigits(9, msIntoHour % 1_000, 3)
+    clockView.setText(digits, 0, digits.size)
+
+    val highlight = msIntoHour < HIGHLIGHT_DURATION_MS
+    if (highlight != highlighted) {
+      highlighted = highlight
+      clockView.setBackgroundColor(if (highlight) HIGHLIGHT_COLOR else NORMAL_COLOR)
+    }
+  }
+
+  private fun putDigits(offset: Int, value: Int, count: Int) {
+    var v = value
+    for (i in count - 1 downTo 0) {
+      digits[offset + i] = '0' + v % 10
+      v /= 10
+    }
+  }
 
   private fun servicePendingIntent(action: String): PendingIntent {
     val intent = Intent(this, FloatClockService::class.java).setAction(action)
@@ -156,5 +192,8 @@ class FloatClockService : Service() {
     const val ACTION_TOGGLE = "com.paulcoding.floatclock.TOGGLE"
     const val ACTION_STOP = "com.paulcoding.floatclock.STOP"
     private const val NOTIFICATION_ID = 1
+    private const val HIGHLIGHT_DURATION_MS = 3_000
+    private const val NORMAL_COLOR = 0x99000000.toInt()
+    private const val HIGHLIGHT_COLOR = 0xFFFF8C00.toInt()
   }
 }
