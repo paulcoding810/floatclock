@@ -7,9 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.os.Build
 import android.os.IBinder
 import android.view.Choreographer
@@ -17,14 +15,12 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
 import java.util.TimeZone
 
 class FloatClockService : Service() {
   private lateinit var windowManager: WindowManager
-  private lateinit var clockView: TextView
+  private lateinit var clockView: ClockView
   private lateinit var params: WindowManager.LayoutParams
-  private val digits = CharArray(12).also { it[2] = ':'; it[5] = ':'; it[8] = '.' }
   private var lastSecond = -1L
   private var offsetMs = 0
   private var highlighted = false
@@ -39,14 +35,8 @@ class FloatClockService : Service() {
   override fun onCreate() {
     super.onCreate()
     windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-    clockView = TextView(this).apply {
-      typeface = Typeface.MONOSPACE
-      textSize = 18f
-      setTextColor(Color.WHITE)
+    clockView = ClockView(this).apply {
       setBackgroundColor(NORMAL_COLOR)
-      setPadding(24, 12, 24, 12)
-      gravity = Gravity.CENTER
-      width = paint.measureText("88:88:88.888").toInt() + paddingLeft + paddingRight
       setOnTouchListener(DragListener())
     }
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -101,25 +91,12 @@ class FloatClockService : Service() {
       offsetMs = TimeZone.getDefault().getOffset(now)
     }
     val msOfDay = Math.floorMod(now + offsetMs, 86_400_000L).toInt()
-    val msIntoHour = msOfDay % 3_600_000
-    putDigits(0, msOfDay / 3_600_000, 2)
-    putDigits(3, msIntoHour / 60_000, 2)
-    putDigits(6, msIntoHour / 1_000 % 60, 2)
-    putDigits(9, msIntoHour % 1_000, 3)
-    clockView.setText(digits, 0, digits.size)
+    clockView.setTime(msOfDay)
 
-    val highlight = msIntoHour < HIGHLIGHT_DURATION_MS
+    val highlight = msOfDay % 3_600_000 < HIGHLIGHT_DURATION_MS
     if (highlight != highlighted) {
       highlighted = highlight
       clockView.setBackgroundColor(if (highlight) HIGHLIGHT_COLOR else NORMAL_COLOR)
-    }
-  }
-
-  private fun putDigits(offset: Int, value: Int, count: Int) {
-    var v = value
-    for (i in count - 1 downTo 0) {
-      digits[offset + i] = '0' + v % 10
-      v /= 10
     }
   }
 
