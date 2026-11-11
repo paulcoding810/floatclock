@@ -3,6 +3,7 @@ package com.paulcoding.floatclock
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -14,6 +15,7 @@ import android.os.IBinder
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import java.text.SimpleDateFormat
@@ -35,7 +37,6 @@ class FloatClockService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-    showForegroundNotification()
     windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
     clockView = TextView(this).apply {
       typeface = Typeface.MONOSPACE
@@ -64,6 +65,18 @@ class FloatClockService : Service() {
     }
     windowManager.addView(clockView, params)
     choreographer.postFrameCallback(frameCallback)
+    showForegroundNotification()
+  }
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    when (intent?.action) {
+      ACTION_TOGGLE -> {
+        clockView.visibility = if (clockView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
+      }
+      ACTION_STOP -> stopSelf()
+    }
+    return START_STICKY
   }
 
   override fun onDestroy() {
@@ -73,6 +86,11 @@ class FloatClockService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  private fun servicePendingIntent(action: String): PendingIntent {
+    val intent = Intent(this, FloatClockService::class.java).setAction(action)
+    return PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+  }
 
   private inner class DragListener : android.view.View.OnTouchListener {
     private var startX = 0
@@ -109,18 +127,34 @@ class FloatClockService : Service() {
       Notification.Builder(this, channelId)
     else
       @Suppress("DEPRECATION") Notification.Builder(this)
+    val visible = clockView.visibility == View.VISIBLE
+    val openApp = PendingIntent.getActivity(
+      this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+    )
     return builder
-      .setContentTitle("Float Clock running")
+      .setContentTitle(if (visible) "Float Clock shown" else "Float Clock hidden")
       .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+      .setContentIntent(openApp)
       .setOngoing(true)
+      .addAction(action(if (visible) "Hide" else "Show", ACTION_TOGGLE))
+      .addAction(action("Stop", ACTION_STOP))
       .build()
   }
 
+  private fun action(title: String, action: String): Notification.Action =
+    Notification.Action.Builder(null, title, servicePendingIntent(action)).build()
+
   private fun showForegroundNotification() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      startForeground(1, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+      startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     } else {
-      startForeground(1, buildNotification())
+      startForeground(NOTIFICATION_ID, buildNotification())
     }
+  }
+
+  companion object {
+    const val ACTION_TOGGLE = "com.paulcoding.floatclock.TOGGLE"
+    const val ACTION_STOP = "com.paulcoding.floatclock.STOP"
+    private const val NOTIFICATION_ID = 1
   }
 }

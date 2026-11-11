@@ -1,12 +1,15 @@
 package com.paulcoding.floatclock
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +24,9 @@ import androidx.core.content.ContextCompat
 import com.paulcoding.floatclock.ui.theme.FloatClockTheme
 
 class MainActivity : ComponentActivity() {
+  private val requestNotification =
+    registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
@@ -41,6 +47,9 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun startClock() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      requestNotification.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
     if (!Settings.canDrawOverlays(this)) {
       startActivity(
         Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
