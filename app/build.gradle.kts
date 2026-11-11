@@ -1,6 +1,14 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
+}
+
+val releaseDir = rootDir.parentFile
+val releaseProps = Properties().apply {
+  val f = File(releaseDir, "release.properties")
+  if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -16,8 +24,18 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  signingConfigs {
+    create("release") {
+      storeFile = File(releaseDir, "release.jks")
+      storePassword = releaseProps.getProperty("storePassword")
+      keyAlias = releaseProps.getProperty("keyAlias")
+      keyPassword = releaseProps.getProperty("keyPassword")
+    }
+  }
+
   buildTypes {
     release {
+      signingConfig = signingConfigs.getByName("release")
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
