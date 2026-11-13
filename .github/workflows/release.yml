@@ -1,0 +1,80 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      JAVA_VERSION: '21'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check tag matches versionName
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -nE 's/^ *versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version in app/build.gradle.kts"
+            exit 1
+          fi
+
+      - name: Restore signing files
+        run: |
+          if [ -z "$KEY_PROPERTIES" ] || [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::Set the KEY_PROPERTIES and RELEASE_KEYSTORE_BASE64 repository secrets"
+            exit 1
+          fi
+          echo "$KEY_PROPERTIES" > ../release.properties
+          chmod 600 ../release.properties
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > ../release.jks
+        env:
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build app
+        run: ./gradlew assembleRelease
+
+      - name: Rename apk
+        run: mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/FloatClock-${GITHUB_REF_NAME}.apk"
+
+      - name: Create changelog
+        id: changelog
+        uses: requarks/changelog-action@v1
+        with:
+          includeInvalidCommits: true
+          token: ${{ github.token }}
+          tag: ${{ github.ref_name }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body: ${{ steps.changelog.outputs.changes }}
+          files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
+          make_latest: true
