@@ -7,9 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
@@ -21,6 +23,7 @@ class FloatClockService : Service() {
   private lateinit var windowManager: WindowManager
   private lateinit var clockView: ClockView
   private lateinit var params: WindowManager.LayoutParams
+  private var attached = false
   private var lastSecond = -1L
   private var offsetMs = 0
   private var highlighted = false
@@ -54,29 +57,56 @@ class FloatClockService : Service() {
       x = 100
       y = 200
     }
-    windowManager.addView(clockView, params)
-    choreographer.postFrameCallback(frameCallback)
     showForegroundNotification()
+    if (!Settings.canDrawOverlays(this)) {
+      stopSelf()
+      return
+    }
+    clampToScreen()
+    try {
+      windowManager.addView(clockView, params)
+    } catch (e: WindowManager.BadTokenException) {
+      stopSelf()
+      return
+    }
+    attached = true
+    choreographer.postFrameCallback(frameCallback)
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (!attached) return START_NOT_STICKY
     when (intent?.action) {
-      ACTION_TOGGLE -> {
-        setClockVisible(clockView.visibility != View.VISIBLE)
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
+      ACTION_TOGGLE -> setClockVisible(clockView.visibility != View.VISIBLE)
+      ACTION_STOP -> {
+        stopSelf()
+        return START_NOT_STICKY
       }
-      ACTION_STOP -> stopSelf()
+      else -> setClockVisible(true)
     }
+    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
     return START_STICKY
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    if (!attached) return
+    clampToScreen()
+    windowManager.updateViewLayout(clockView, params)
   }
 
   override fun onDestroy() {
     choreographer.removeFrameCallback(frameCallback)
-    windowManager.removeView(clockView)
+    if (attached) windowManager.removeView(clockView)
     super.onDestroy()
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  private fun clampToScreen() {
+    val metrics = resources.displayMetrics
+    params.x = params.x.coerceIn(0, maxOf(0, metrics.widthPixels - clockView.width))
+    params.y = params.y.coerceIn(0, maxOf(0, metrics.heightPixels - clockView.height))
+  }
 
   private fun setClockVisible(visible: Boolean) {
     clockView.visibility = if (visible) View.VISIBLE else View.GONE
@@ -110,18 +140,21 @@ class FloatClockService : Service() {
     private var startY = 0
     private var touchX = 0f
     private var touchY = 0f
+    private val location = IntArray(2)
 
     override fun onTouch(v: android.view.View, event: MotionEvent): Boolean {
       when (event.action) {
         MotionEvent.ACTION_DOWN -> {
-          startX = params.x
-          startY = params.y
+          v.getLocationOnScreen(location)
+          startX = location[0]
+          startY = location[1]
           touchX = event.rawX
           touchY = event.rawY
         }
         MotionEvent.ACTION_MOVE -> {
           params.x = startX + (event.rawX - touchX).toInt()
           params.y = startY + (event.rawY - touchY).toInt()
+          clampToScreen()
           windowManager.updateViewLayout(clockView, params)
         }
         MotionEvent.ACTION_UP -> v.performClick()
